@@ -15,11 +15,16 @@ from redis import StrictRedis
 
 class Subscriber(object):
 
-    def __init__(self, channel, **redis_config):
+    def __init__(self, **redis_config):
         self.redis = StrictRedis(**redis_config)
-        self.channel = 'redmsg:' + channel
         self.pubsub = self.redis.pubsub()
-        self.pubsub.subscribe(self.channel)
+
+    def subscribe(self, channel):
+        self.pubsub.subscribe('redmsg:' + channel)
+
+    def unsubscribe(self, channel):
+        self.pubsub.unsubscribe('redmsg:' + channel)
 
     def listen(self):
-        return (item['data'] for item in self.pubsub.listen() if item['type'] == 'message')
+        return ({'channel': item['channel'].split('redmsg:')[1], 'data': item['data']}
+                for item in self.pubsub.listen() if item['type'] == 'message')

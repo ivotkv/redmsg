@@ -12,12 +12,30 @@
 # 
 
 from redis import StrictRedis
+from redis.client import StrictPipeline
+
+class PublisherPipeline(StrictPipeline):
+
+    def __init__(self, message_ttl, *args):
+        super(PublisherPipeline, self).__init__(*args)
+        self.message_ttl = message_ttl
+
+    def publish(self, channel, message, ttl=None):
+        super(PublisherPipeline, self).publish('redmsg:' + channel, message)
 
 class Publisher(object):
 
-    def __init__(self, channel, ttl=3600, **redis_config):
+    def __init__(self, message_ttl=3600, **redis_config):
         self.redis = StrictRedis(**redis_config)
-        self.channel = 'redmsg:' + channel
+        self.message_ttl = message_ttl
 
-    def publish(self, message):
-        self.redis.publish(self.channel, message)
+    def pipeline(self, transaction=True, shard_hint=None):
+        return PublisherPipeline(
+            self.message_ttl,
+            self.redis.connection_pool,
+            self.redis.response_callbacks,
+            transaction,
+            shard_hint)
+
+    def publish(self, channel, message, ttl=None):
+        self.redis.publish('redmsg:' + channel, message)
