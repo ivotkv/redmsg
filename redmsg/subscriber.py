@@ -11,5 +11,15 @@
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 # 
 
-from publisher import Publisher
-from subscriber import Subscriber
+from redis import StrictRedis
+
+class Subscriber(object):
+
+    def __init__(self, channel, **redis_config):
+        self.redis = StrictRedis(**redis_config)
+        self.channel = 'redmsg:' + channel
+        self.pubsub = self.redis.pubsub()
+        self.pubsub.subscribe(self.channel)
+
+    def listen(self):
+        return (item['data'] for item in self.pubsub.listen() if item['type'] == 'message')

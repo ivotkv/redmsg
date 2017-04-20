@@ -17,7 +17,7 @@ try:
 except ImportError:
     from distutils.core import setup
 
-__version__ = '1.0.0'
+__version__ = '0.0.1'
 
 setup(
     name='redmsg',
@@ -35,9 +35,10 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 2.7",
-        #"Programming Language :: Python :: 3.3",
-        #"Programming Language :: Python :: 3.4",
-        #"Programming Language :: Python :: 3.5",
+        "Programming Language :: Python :: 3.3",
+        "Programming Language :: Python :: 3.4",
+        "Programming Language :: Python :: 3.5",
+        "Programming Language :: Python :: 3.6",
         "Topic :: Software Development"
     ],
     keywords=[
