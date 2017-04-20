@@ -21,7 +21,7 @@ class PublisherPipeline(StrictPipeline):
         self.message_ttl = message_ttl
 
     def publish(self, channel, message, ttl=None):
-        super(PublisherPipeline, self).publish('redmsg:' + channel, message)
+        return super(PublisherPipeline, self).publish('redmsg:' + channel, message)
 
 class Publisher(object):
 
@@ -38,4 +38,4 @@ class Publisher(object):
             shard_hint)
 
     def publish(self, channel, message, ttl=None):
-        self.redis.publish('redmsg:' + channel, message)
+        return self.redis.publish('redmsg:' + channel, message)

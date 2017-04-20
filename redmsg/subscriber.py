@@ -20,10 +20,10 @@ class Subscriber(object):
         self.pubsub = self.redis.pubsub()
 
     def subscribe(self, channel):
-        self.pubsub.subscribe('redmsg:' + channel)
+        return self.pubsub.subscribe('redmsg:' + channel)
 
     def unsubscribe(self, channel):
-        self.pubsub.unsubscribe('redmsg:' + channel)
+        return self.pubsub.unsubscribe('redmsg:' + channel)
 
     def listen(self):
         return ({'channel': item['channel'].split('redmsg:')[1], 'data': item['data']}
