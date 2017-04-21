@@ -26,5 +26,5 @@ class Subscriber(object):
         return self.pubsub.unsubscribe('redmsg:' + channel)
 
     def listen(self):
-        return ({'channel': item['channel'].split('redmsg:')[1], 'data': item['data']}
+        return ({'channel': item['channel'][7:], 'data': item['data']}
                 for item in self.pubsub.listen() if item['type'] == 'message')
