@@ -12,30 +12,40 @@
 # 
 
 from redis import StrictRedis
-from redis.client import StrictPipeline
 
-class PublisherPipeline(StrictPipeline):
-
-    def __init__(self, message_ttl, *args):
-        super(PublisherPipeline, self).__init__(*args)
-        self.message_ttl = message_ttl
-
-    def publish(self, channel, message, ttl=None):
-        return super(PublisherPipeline, self).publish('redmsg:' + channel, message)
+__all__ = ['Publisher']
 
 class Publisher(object):
 
-    def __init__(self, message_ttl=3600, **redis_config):
-        self.redis = StrictRedis(**redis_config)
-        self.message_ttl = message_ttl
+    _publish_script = """
+        local txid = redis.call('INCR', KEYS[1])
+        redis.call('SETEX', KEYS[1] .. ':' .. txid, ARGV[1], ARGV[2])
+        redis.call('PUBLISH', KEYS[1], ARGV[2])
+        return txid
+    """
+
+    def __init__(self, ttl=3600, redis=None, **redis_config):
+        self.ttl = ttl
+        self.redis = redis if redis is not None else StrictRedis(**redis_config)
+        self._publish = self.redis.register_script(self._publish_script)
 
     def pipeline(self, transaction=True, shard_hint=None):
-        return PublisherPipeline(
-            self.message_ttl,
-            self.redis.connection_pool,
-            self.redis.response_callbacks,
-            transaction,
-            shard_hint)
+        pipeline = self.redis.pipeline(transaction=transaction, shard_hint=shard_hint)
+        return PublisherPipeline(ttl=self.ttl, redis=pipeline)
 
     def publish(self, channel, message, ttl=None):
-        return self.redis.publish('redmsg:' + channel, message)
+        return self._publish(('redmsg:' + channel,), (ttl or self.ttl, message))
+
+class PublisherPipeline(Publisher):
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.reset()
+
+    def reset(self):
+        self.redis.reset()
+
+    def execute(self, raise_on_error=True):
+        return self.redis.execute(raise_on_error=raise_on_error)
