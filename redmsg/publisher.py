@@ -20,7 +20,7 @@ class Publisher(object):
     _publish_script = """
         local txid = redis.call('INCR', KEYS[1])
         redis.call('SETEX', KEYS[1] .. ':' .. txid, ARGV[1], ARGV[2])
-        redis.call('PUBLISH', KEYS[1], ARGV[2])
+        redis.call('PUBLISH', KEYS[1], txid .. ':' .. ARGV[2])
         return txid
     """
 

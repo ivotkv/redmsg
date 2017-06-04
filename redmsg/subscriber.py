@@ -13,10 +13,12 @@
 
 from redis import StrictRedis
 
+__all__ = ['Subscriber']
+
 class Subscriber(object):
 
-    def __init__(self, **redis_config):
-        self.redis = StrictRedis(**redis_config)
+    def __init__(self, redis=None, **redis_config):
+        self.redis = redis if redis is not None else StrictRedis(**redis_config)
         self.pubsub = self.redis.pubsub()
 
     def subscribe(self, channel):
@@ -26,5 +28,26 @@ class Subscriber(object):
         return self.pubsub.unsubscribe('redmsg:' + channel)
 
     def listen(self):
-        return ({'channel': item['channel'][7:], 'data': item['data']}
-                for item in self.pubsub.listen() if item['type'] == 'message')
+        for msg in self.pubsub.listen():
+            if msg['type'] == 'message':
+                txid, data = msg['data'].decode('utf-8').split(':', 1)
+                yield {
+                    'channel': msg['channel'].decode('utf-8')[7:],
+                    'txid': int(txid),
+                    'data': data
+                }
+
+    def replay_from(self, channel, txid, batch_size=100):
+        txid = int(txid)
+        done = False
+        while not done:
+            for idx, data in enumerate(self.redis.mget(['redmsg:{0}:{1}'.format(channel, txid + i) for i in range(batch_size)])):
+                if data is None:
+                    done = True
+                    break
+                yield {
+                    'channel': channel,
+                    'txid': txid + idx,
+                    'data': data.decode('utf-8')
+                }
+            txid += batch_size
