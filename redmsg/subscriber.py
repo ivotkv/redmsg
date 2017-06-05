@@ -12,42 +12,127 @@
 # 
 
 from redis import StrictRedis
+from threading import Thread, Event
+try:
+    from queue import Queue, Empty
+except ImportError:
+    from Queue import Queue, Empty
 
-__all__ = ['Subscriber']
+__all__ = ['Subscriber', 'ChannelError', 'MissingTransaction']
+
+class ChannelError(Exception): pass
+class MissingTransaction(Exception): pass
+
+class ThreadEvents(object):
+
+    def __init__(self):
+        self.terminate = Event()
+        self.terminated = Event()
 
 class Subscriber(object):
 
     def __init__(self, redis=None, **redis_config):
         self.redis = redis if redis is not None else StrictRedis(**redis_config)
-        self.pubsub = self.redis.pubsub()
+        self.pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
+        self.channel = None
 
     def subscribe(self, channel):
-        return self.pubsub.subscribe('redmsg:' + channel)
+        if self.channel is not None:
+            raise ChannelError('already subscribed to a channel')
+        self.pubsub.subscribe('redmsg:' + channel)
+        self.channel = channel
 
     def unsubscribe(self, channel):
-        return self.pubsub.unsubscribe('redmsg:' + channel)
+        if self.channel is None:
+            raise ChannelError('not subscribed to a channel')
+        self.pubsub.unsubscribe('redmsg:' + channel)
+        self.channel = None
+
+    def process_message(self, message):
+        txid, data = message['data'].decode('utf-8').split(':', 1)
+        return {
+            'channel': message['channel'].decode('utf-8')[7:],
+            'txid': int(txid),
+            'data': data
+        }
 
     def listen(self):
-        for msg in self.pubsub.listen():
-            if msg['type'] == 'message':
-                txid, data = msg['data'].decode('utf-8').split(':', 1)
-                yield {
-                    'channel': msg['channel'].decode('utf-8')[7:],
-                    'txid': int(txid),
-                    'data': data
-                }
+        if self.channel is None:
+            raise ChannelError('not subscribed to a channel')
+        for message in self.pubsub.listen():
+            yield self.process_message(message)
 
-    def replay_from(self, channel, txid, batch_size=100):
+    def _load_batch(self, txid, batch_size):
         txid = int(txid)
-        done = False
-        while not done:
-            for idx, data in enumerate(self.redis.mget(['redmsg:{0}:{1}'.format(channel, txid + i) for i in range(batch_size)])):
-                if data is None:
-                    done = True
-                    break
-                yield {
-                    'channel': channel,
-                    'txid': txid + idx,
-                    'data': data.decode('utf-8')
-                }
-            txid += batch_size
+        for idx, data in enumerate(self.redis.mget(['redmsg:{0}:{1}'.format(self.channel, txid + i) for i in range(batch_size)])):
+            yield {
+                'channel': self.channel,
+                'txid': txid + idx,
+                'data': data.decode('utf-8')
+            } if data is not None else None
+
+    def _listener_thread(self, queue, events):
+        try:
+            while not events.terminate.is_set():
+                message = self.pubsub.get_message(ignore_subscribe_messages=True, timeout=0.01)
+                if message is not None:
+                    queue.put(self.process_message(message))
+        finally:
+            events.terminated.set()
+
+    def _populator_thread(self, queue, events, txid, batch_size):
+        listener_queue = Queue()
+        listener_events = ThreadEvents()
+        listener_thread = Thread(target=self._listener_thread, args=(listener_queue, listener_events))
+        listener_thread.daemon = True
+        listener_thread.start()
+
+        try:
+            latest = -1
+            current = txid
+            loaded = batch_size
+            while loaded == batch_size and not events.terminate.is_set():
+                loaded = 0
+                for message in self._load_batch(current, batch_size=batch_size):
+                    if message is not None:
+                        latest = message['txid']
+                        queue.put(message)
+                        loaded += 1
+                    else:
+                        break
+                current += batch_size
+            if latest == -1 and not events.terminate.is_set():
+                raise MissingTransaction('txid not found: {0}'.format(txid))
+
+            while not events.terminate.is_set():
+                try:
+                    message = listener_queue.get(timeout=0.01)
+                    if message['txid'] > latest:
+                        queue.put(message)
+                except Empty:
+                    pass
+
+        finally:
+            if listener_thread.is_alive():
+                listener_events.terminate.set()
+                listener_events.terminated.wait()
+            events.terminated.set()
+
+    def listen_from(self, txid, batch_size=100):
+        if self.channel is None:
+            raise ChannelError('not subscribed to a channel')
+        txid = int(txid)
+
+        queue = Queue()
+        populator_events = ThreadEvents()
+        populator_thread = Thread(target=self._populator_thread, args=(queue, populator_events, txid, batch_size))
+        populator_thread.daemon = True
+        populator_thread.start()
+
+        try:
+            while True:
+                yield queue.get()
+        finally:
+            if populator_thread.is_alive():
+                populator_events.terminate.set()
+                populator_events.terminated.wait()
