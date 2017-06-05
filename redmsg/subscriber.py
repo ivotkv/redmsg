@@ -93,7 +93,7 @@ class Subscriber(object):
             loaded = batch_size
             while loaded == batch_size and not events.terminate.is_set():
                 loaded = 0
-                for message in self._load_batch(current, batch_size=batch_size):
+                for message in self._load_batch(current, batch_size):
                     if message is not None:
                         latest = message['txid']
                         queue.put(message)
@@ -101,6 +101,7 @@ class Subscriber(object):
                     else:
                         break
                 current += batch_size
+
             if latest == -1 and not events.terminate.is_set():
                 raise MissingTransaction('txid not found: {0}'.format(txid))
 
