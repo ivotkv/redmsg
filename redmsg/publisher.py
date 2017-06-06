@@ -36,6 +36,10 @@ class Publisher(object):
     def publish(self, channel, message, ttl=None):
         return self._publish(('redmsg:' + channel,), (ttl or self.ttl, message))
 
+    def txid(self, channel):
+        txid = self.redis.get('redmsg:' + channel)
+        return int(txid) if txid is not None else None
+
 class PublisherPipeline(Publisher):
 
     def __enter__(self):
