@@ -12,6 +12,7 @@
 # 
 
 from redis import StrictRedis
+from .exc import *
 
 __all__ = ['Publisher']
 

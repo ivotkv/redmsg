@@ -17,7 +17,7 @@ try:
 except ImportError:
     from distutils.core import setup
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 
 setup(
     name='redmsg',

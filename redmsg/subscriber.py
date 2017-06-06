@@ -17,11 +17,9 @@ try:
     from queue import Queue, Empty
 except ImportError:
     from Queue import Queue, Empty
+from .exc import *
 
-__all__ = ['Subscriber', 'ChannelError', 'MissingTransaction']
-
-class ChannelError(Exception): pass
-class MissingTransaction(Exception): pass
+__all__ = ['Subscriber']
 
 LOOP_TIMEOUT = 0.01
 
