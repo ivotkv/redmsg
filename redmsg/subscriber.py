@@ -23,11 +23,14 @@ __all__ = ['Subscriber', 'ChannelError', 'MissingTransaction']
 class ChannelError(Exception): pass
 class MissingTransaction(Exception): pass
 
+LOOP_TIMEOUT = 0.01
+
 class ThreadEvents(object):
 
     def __init__(self):
         self.terminate = Event()
         self.terminated = Event()
+        self.exception = None
 
 class Subscriber(object):
 
@@ -62,61 +65,64 @@ class Subscriber(object):
         for message in self.pubsub.listen():
             yield self.process_message(message)
 
-    def _load_batch(self, txid, batch_size):
-        txid = int(txid)
-        for idx, data in enumerate(self.redis.mget(['redmsg:{0}:{1}'.format(self.channel, txid + i) for i in range(batch_size)])):
-            yield {
-                'channel': self.channel,
-                'txid': txid + idx,
-                'data': data.decode('utf-8')
-            } if data is not None else None
-
     def _listener_thread(self, queue, events):
         try:
             while not events.terminate.is_set():
-                message = self.pubsub.get_message(ignore_subscribe_messages=True, timeout=0.01)
+                message = self.pubsub.get_message(timeout=LOOP_TIMEOUT)
                 if message is not None:
                     queue.put(self.process_message(message))
+        except Exception as e:
+            events.exception = e
         finally:
             events.terminated.set()
 
-    def _populator_thread(self, queue, events, txid, batch_size):
-        listener_queue = Queue()
-        listener_events = ThreadEvents()
-        listener_thread = Thread(target=self._listener_thread, args=(listener_queue, listener_events))
-        listener_thread.daemon = True
-        listener_thread.start()
-
+    def _loader_thread(self, queue, events, txid, batch_size):
         try:
+            listener_queue = Queue()
+            listener_events = ThreadEvents()
+            listener_thread = Thread(target=self._listener_thread, args=(listener_queue, listener_events))
+            listener_thread.daemon = True
+            listener_thread.start()
+
             latest = -1
             current = txid
             loaded = batch_size
             while loaded == batch_size and not events.terminate.is_set():
                 loaded = 0
-                for message in self._load_batch(current, batch_size):
-                    if message is not None:
-                        latest = message['txid']
-                        queue.put(message)
-                        loaded += 1
-                    else:
+                keys = ['redmsg:{0}:{1}'.format(self.channel, current + i) for i in range(batch_size)]
+                for idx, data in enumerate(self.redis.mget(keys)):
+                    if data is None:
                         break
+                    else:
+                        latest = current + idx
+                        queue.put({
+                            'channel': self.channel,
+                            'txid': latest,
+                            'data': data.decode('utf-8')
+                        })
+                        loaded += 1
                 current += batch_size
 
             if latest == -1 and not events.terminate.is_set():
                 raise MissingTransaction('txid not found: {0}'.format(txid))
 
-            while not events.terminate.is_set():
+            while not events.terminate.is_set() and not listener_events.terminated.is_set():
                 try:
-                    message = listener_queue.get(timeout=0.01)
+                    message = listener_queue.get(timeout=LOOP_TIMEOUT)
                     if message['txid'] > latest:
                         queue.put(message)
                 except Empty:
                     pass
 
+        except Exception as e:
+            events.exception = e
+
         finally:
             if listener_thread.is_alive():
                 listener_events.terminate.set()
                 listener_events.terminated.wait()
+            if listener_events.exception:
+                events.exception = listener_events.exception
             events.terminated.set()
 
     def listen_from(self, txid, batch_size=100):
@@ -124,16 +130,21 @@ class Subscriber(object):
             raise ChannelError('not subscribed to a channel')
         txid = int(txid)
 
-        queue = Queue()
-        populator_events = ThreadEvents()
-        populator_thread = Thread(target=self._populator_thread, args=(queue, populator_events, txid, batch_size))
-        populator_thread.daemon = True
-        populator_thread.start()
+        loader_queue = Queue()
+        loader_events = ThreadEvents()
+        loader_thread = Thread(target=self._loader_thread, args=(loader_queue, loader_events, txid, batch_size))
+        loader_thread.daemon = True
+        loader_thread.start()
 
         try:
-            while True:
-                yield queue.get()
+            while not loader_events.terminated.is_set():
+                try:
+                    yield loader_queue.get(timeout=LOOP_TIMEOUT)
+                except Empty:
+                    pass
         finally:
-            if populator_thread.is_alive():
-                populator_events.terminate.set()
-                populator_events.terminated.wait()
+            if loader_thread.is_alive():
+                loader_events.terminate.set()
+                loader_events.terminated.wait()
+            if loader_events.exception:
+                raise loader_events.exception
