@@ -49,6 +49,9 @@ class PublisherPipeline(Publisher):
     def __exit__(self, exc_type, exc_value, traceback):
         self.reset()
 
+    def __len__(self):
+        return len(self.redis)
+
     def reset(self):
         self.redis.reset()
 
