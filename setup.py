@@ -48,6 +48,7 @@ setup(
         'redmsg'
     ],
     install_requires=[
-        'redis'
+        'redis',
+        'hiredis'
     ]
 )
