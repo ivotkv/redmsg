@@ -15,4 +15,4 @@ from .publisher import Publisher
 from .subscriber import Subscriber
 from .exc import *
 
-__version__ = '0.1.3'
+__version__ = '0.1.4'
