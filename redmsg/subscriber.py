@@ -74,7 +74,7 @@ class Subscriber(object):
         finally:
             events.terminated.set()
 
-    def _loader_thread(self, queue, events, txid, batch_size):
+    def _loader_thread(self, queue, events, txid, batch_size, ignore_missing=False):
         try:
             listener_queue = Queue()
             listener_events = ThreadEvents()
@@ -101,7 +101,7 @@ class Subscriber(object):
                         loaded += 1
                 current += batch_size
 
-            if latest == -1 and not events.terminate.is_set():
+            if latest == -1 and not ignore_missing and not events.terminate.is_set():
                 raise MissingTransaction('txid not found: {0}'.format(txid))
 
             while not events.terminate.is_set() and not listener_events.terminated.is_set():
@@ -123,14 +123,14 @@ class Subscriber(object):
                 events.exception = listener_events.exception
             events.terminated.set()
 
-    def listen_from(self, txid, batch_size=100):
+    def listen_from(self, txid, batch_size=100, ignore_missing=False):
         if self.channel is None:
             raise ChannelError('not subscribed to a channel')
         txid = int(txid)
 
         loader_queue = Queue()
         loader_events = ThreadEvents()
-        loader_thread = Thread(target=self._loader_thread, args=(loader_queue, loader_events, txid, batch_size))
+        loader_thread = Thread(target=self._loader_thread, args=(loader_queue, loader_events, txid, batch_size, ignore_missing))
         loader_thread.daemon = True
         loader_thread.start()
 
