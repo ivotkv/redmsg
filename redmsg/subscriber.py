@@ -85,12 +85,15 @@ class Subscriber(object):
             latest = -1
             current = txid
             loaded = batch_size
-            while loaded == batch_size and not events.terminate.is_set():
+            while (loaded == batch_size or (ignore_missing and loaded > 0)) and not events.terminate.is_set():
                 loaded = 0
                 keys = ['redmsg:{0}:{1}'.format(self.channel, current + i) for i in range(batch_size)]
                 for idx, data in enumerate(self.redis.mget(keys)):
                     if data is None:
-                        break
+                        if ignore_missing:
+                            continue
+                        else:
+                            break
                     else:
                         latest = current + idx
                         queue.put({
