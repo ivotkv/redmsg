@@ -104,13 +104,18 @@ class Subscriber(object):
                         loaded += 1
                 current += batch_size
 
-            if latest == -1 and not ignore_missing and not events.terminate.is_set():
+            if not ignore_missing and latest == -1 and not events.terminate.is_set():
                 raise MissingTransaction('txid not found: {0}'.format(txid))
 
             while not events.terminate.is_set() and not listener_events.terminated.is_set():
                 try:
                     message = listener_queue.get(timeout=LOOP_TIMEOUT)
                     if message['txid'] > latest:
+                        if not ignore_missing:
+                            if message['txid'] != (latest + 1):
+                                raise MissingTransaction('missing txid: {0}'.format(latest + 1))
+                            else:
+                                latest = message['txid']
                         queue.put(message)
                 except Empty:
                     pass
